@@ -125,7 +125,7 @@ function Qloot:CreateConfigPanel()
     local reloadBtn = CreateFrame("Button", nil, content, "UIPanelButtonTemplate")
     reloadBtn:SetSize(120, 25)
     reloadBtn:SetPoint("BOTTOMRIGHT", -10, 10)
-    reloadBtn:SetText("Reload UI")
+    reloadBtn:SetText("Apply (Reload UI)")
     reloadBtn:SetScript("OnClick", ReloadUI)
 
     -- Footer: Version & Author
