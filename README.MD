@@ -16,6 +16,10 @@ Unlike standard fast loot addons that try to grab everything instantly-often cau
 - **Leftover Warning:** Alerts you if items were left unlooted when the window closes.
 - **Debug Mode:** Optional verbose logging to chat for troubleshooting loot issues.
 
+![Qloot 1](https://github.com/mmobrain/stuffforstuff/blob/main/Qloot/1.jpg?raw=true)
+
+
+
 ## Comparison: Leatrix Plus vs. Qloot
 
 Qloot was built to address specific shortcomings in older auto-loot implementations on modern private server cores.
