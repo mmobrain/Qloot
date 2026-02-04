@@ -1,0 +1,12 @@
+## Interface: 30300
+## Title: Qloot
+## Notes:  Quick loot addon for WoW 3.3.5a with queue-based throttling freeze protection, inventory validation, leftover item warnings. Designed to prevent disconnects while "Fast Looting".
+## Author: Skulltrail
+## Version: 0.0.1
+## SavedVariables: QlootDB
+
+Core.lua
+Skin.lua
+Config.lua
+FrameHandler.lua
+LootEngine.lua
