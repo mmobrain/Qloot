@@ -14,6 +14,7 @@ Unlike standard fast loot addons that try to grab everything instantly-often cau
   - Skips Locked/BoP items automatically (opening the window for you to decide).
   - Pre-calculates inventory space and stack sizes to avoid error spam.
 - **Leftover Warning:** Alerts you if items were left unlooted when the window closes.
+- **Basic Loot Filter:** You can now filter out unwanted items by quality (e.g., `q0`), exact name, or wildcard (e.g., `Tough Jerky*`). (with Log and Drag & Drop functionality)
 - **Debug Mode:** Optional verbose logging to chat for troubleshooting loot issues.
 
 ![Qloot 1](https://github.com/mmobrain/stuffforstuff/blob/main/Qloot/1.jpg?raw=true)
@@ -32,6 +33,7 @@ Qloot was built to address specific shortcomings in older auto-loot implementati
 | **Queue System** | No queue (fire and forget) | Persistent queue with re-validation |
 | **State Recovery** | None (relies on initial event) | Re-validates slots before *every* loot action |
 | **Inventory Check** | Yes, but performed in tight loop | Yes, performed before queuing specific items |
+| **Loot Filter** | None | Basic. Quality or Name based |
 
 ## Installation
 

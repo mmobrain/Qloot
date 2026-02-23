@@ -30,9 +30,14 @@ function Qloot:ShowDefaultLootFrame(show)
         end
         self.State.lootWindowHidden = false
     else
-        -- It's already unregistered from LOOT_OPENED in Core.lua
-        -- Just ensure it's hidden
+        -- Safely hide without triggering native CloseLoot()
+        local onHide = LootFrame:GetScript("OnHide")
+        LootFrame:SetScript("OnHide", nil)
+        
         LootFrame:Hide()
+        
+        -- Restore the script for normal operation later
+        LootFrame:SetScript("OnHide", onHide)
         self.State.lootWindowHidden = true
     end
 end
@@ -40,7 +45,7 @@ end
 function Qloot:ShowElvUILootFrame(show)
     local elvLoot = ElvLootFrame
     if not elvLoot then return end
-    
+
     if show then
         -- Restore ElvUI parent
         if ElvLootFrameHolder then
@@ -49,16 +54,26 @@ function Qloot:ShowElvUILootFrame(show)
             elvLoot:SetParent(UIParent)
         end
         elvLoot:SetFrameStrata("HIGH")
-        
-        -- Force update (ElvUI specific method trigger)
-        local E = unpack(ElvUI)
-        local L = E:GetModule('Loot')
-        if L then L:LOOT_OPENED() end
-        
+
+        -- Force update via ElvUI Loot module.
+        local E = ElvUI and unpack(ElvUI)
+        if E and type(E.GetModule) == "function" then
+            local L = E:GetModule("Loot", true)
+            if L and type(L.LOOT_OPENED) == "function" then
+                L:LOOT_OPENED()
+            end
+        end
+
         self.State.lootWindowHidden = false
     else
-        -- Hide by reparenting to our hidden frame
+        -- Safely hide by reparenting, ensuring ElvUI's OnHide doesn't close loot
+        local onHide = elvLoot:GetScript("OnHide")
+        elvLoot:SetScript("OnHide", nil)
+        
         elvLoot:SetParent(Qloot.HiddenFrame)
+        elvLoot:Hide()
+        
+        elvLoot:SetScript("OnHide", onHide)
         self.State.lootWindowHidden = true
     end
 end
