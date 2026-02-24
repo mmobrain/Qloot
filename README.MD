@@ -14,7 +14,7 @@ Unlike standard fast loot addons that try to grab everything instantly-often cau
   - Skips Locked/BoP items automatically (opening the window for you to decide).
   - Pre-calculates inventory space and stack sizes to avoid error spam.
 - **Leftover Warning:** Alerts you if items were left unlooted when the window closes.
-- **Basic Loot Filter:** You can now filter out unwanted items by quality (e.g., `q0`), exact name, or wildcard (e.g., `Tough Jerky*`). (with Log and Drag & Drop functionality)
+- **Basic Loot Filter:** You can now filter out unwanted items by quality (e.g., `q0`, `q0&v<50s`), exact name, or wildcard (e.g., `Tough Jerky*`). (with Log and Drag & Drop functionality)
 - **Debug Mode:** Optional verbose logging to chat for troubleshooting loot issues.
 
 ![Qloot 1](https://github.com/mmobrain/stuffforstuff/blob/main/Qloot/1.jpg?raw=true)

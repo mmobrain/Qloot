@@ -11,57 +11,251 @@ Qloot.LootQueue = {
     DELAY = 0.1 
 }
 
+-- Max attempts to wait for vendor price cache before giving up and looting anyway.
+-- At default 110ms delay: 5 tries ≈ 440ms. Sufficient for a local private server.
+-- If vendorPrice is unavailable after this, the item is looted as a safe fallback.
+local PENDING_VALUE_MAX_TRIES = 4
+
 -- ============================================================================
 -- FILTER COMPILER & MATCHER
 -- ============================================================================
+
+function Qloot:ParseValueToken(token)
+    if not token then return nil end
+
+    token = token:match("^%s*(.-)%s*$")
+    if token == "" then return nil end
+
+    -- Allow optional spaces: v<50s, v< 50s, v <50 s (permissive)
+    local op, amount, suffix = token:match("^[vV]%s*([<>])%s*(%d+)%s*([gGsScC]?)%s*$")
+    if not op then return nil end
+
+    local copper = tonumber(amount)
+    if not copper then return nil end
+
+    suffix = (suffix or ""):lower()
+    if suffix == "g" then
+        copper = copper * 10000
+    elseif suffix == "s" then
+        copper = copper * 100
+    else
+        -- 'c' or empty suffix means copper
+    end
+
+    return op, copper
+end
+
+function Qloot:PrimeItemInfo(itemLink)
+    if not itemLink then return end
+
+    if not self.ScanTip then
+        local tip = CreateFrame("GameTooltip", "QlootScanTip", UIParent, "GameTooltipTemplate")
+        tip:SetOwner(UIParent, "ANCHOR_NONE")
+        tip:Hide()
+        self.ScanTip = tip
+    end
+
+    self.ScanTip:ClearLines()
+    self.ScanTip:SetHyperlink(itemLink)
+end
+
+function Qloot:GetVendorPrice(itemLink)
+    if not itemLink then return nil end
+
+    local _, _, _, _, _, _, _, _, _, _, vendorPrice = GetItemInfo(itemLink)
+    if vendorPrice ~= nil then
+        return vendorPrice
+    end
+
+    -- Try by itemID as well (sometimes helps depending on cache state)
+    local itemID = tonumber(itemLink:match("item:(%d+):"))
+    if itemID then
+        _, _, _, _, _, _, _, _, _, _, vendorPrice = GetItemInfo(itemID)
+        if vendorPrice ~= nil then
+            return vendorPrice
+        end
+    end
+
+    -- Prime cache for a later retry
+    self:PrimeItemInfo(itemLink)
+    return nil
+end
+
+
 function Qloot:CompileFilters()
-    self.Filters = { qualities = {}, exactNames = {}, patterns = {} }
+    self.Filters = {
+        qualities = {},
+        exactNames = {},
+        patterns = {},
+        valueRules = {},
+        compoundRules = {},
+    }
+
+    -- Tracks invalid rules already reported this session to avoid chat spam
+    self.ReportedInvalidRules = self.ReportedInvalidRules or {}
+
     if not QlootDB or not QlootDB.filterList then return end
-    
+
     for line in string.gmatch(QlootDB.filterList, "[^\r\n]+") do
         local raw = line:match("^%s*(.-)%s*$")
         if raw and raw ~= "" then
-            local q = raw:match("^[qQ](%d)$")
-            if q then
-                self.Filters.qualities[tonumber(q)] = raw
-            elseif raw:find("%*") then
-                local escaped = raw:gsub("([%^%$%(%)%%%.%[%]%+%-%?])", "%%%1")
-                local pat = "^" .. escaped:gsub("%*", ".*") .. "$"
-                table.insert(self.Filters.patterns, { pattern = pat:lower(), raw = raw })
+
+            -- Compound rule: q0&v<50s (AND logic on one line)
+            if raw:find("&", 1, true) then
+                local rule = { raw = raw, conditions = {} }
+                local invalid = false
+
+                for part in string.gmatch(raw, "[^&]+") do
+                    part = part:match("^%s*(.-)%s*$")
+                    if part ~= "" then
+                        local q = part:match("^[qQ](%d)$")
+                        if q then
+                            table.insert(rule.conditions, { type = "quality", value = tonumber(q) })
+                        else
+                            local op, copper = self:ParseValueToken(part)
+                            if op then
+                                table.insert(rule.conditions, { type = "value", op = op, threshold = copper })
+                            else
+                                invalid = true
+                                break
+                            end
+                        end
+                    end
+                end
+
+                if not invalid and #rule.conditions >= 2 then
+                    table.insert(self.Filters.compoundRules, rule)
+                    self:Debug("Compiled compound rule: " .. raw)
+                else
+                    self:Debug("Ignored invalid compound rule: " .. raw)
+
+                    -- Report to player once per session per rule
+                    if not self.ReportedInvalidRules[raw] then
+                        self.ReportedInvalidRules[raw] = true
+                        self:Print("|cffff4444Invalid filter rule ignored:|r |cffffd100\"" .. raw .. "\"|r  (check filters (/qloot))")
+                    end
+                end
+
             else
-                self.Filters.exactNames[raw:lower()] = raw
+                -- Simple rules (legacy behavior + value rule)
+                local q = raw:match("^[qQ](%d)$")
+                if q then
+                    self.Filters.qualities[tonumber(q)] = raw
+                else
+                    local op, copper = self:ParseValueToken(raw)
+                    if op then
+                        table.insert(self.Filters.valueRules, { op = op, copper = copper, raw = raw })
+                    elseif raw:find("%*") then
+                        local escaped = raw:gsub("([%^%$%(%)%%%.%[%]%+%-%?])", "%%%1")
+                        local pat = "^" .. escaped:gsub("%*", ".*") .. "$"
+                        table.insert(self.Filters.patterns, { pattern = pat:lower(), raw = raw })
+                    else
+                        self.Filters.exactNames[raw:lower()] = raw
+                    end
+                end
             end
         end
     end
 end
 
+
+
 function Qloot:GetFilterMatch(link, quality)
-    if quality and self.Filters.qualities[quality] then
-        return self.Filters.qualities[quality]
+    -- Money/currency has no item link: never let quality/value rules consume it.
+    if not link then
+        return nil, false
     end
-    
-    if not link then return nil end
-    
+
     local itemName = GetItemInfo(link) or link:match("%[(.-)%]")
-    if not itemName then return nil end
-    
-    local lowerName = itemName:lower()
-    
-    if self.Filters.exactNames[lowerName] then
-        return self.Filters.exactNames[lowerName]
+    if not itemName then
+        -- If even the name isn't available, we're effectively pending item cache.
+        self:PrimeItemInfo(link)
+        return nil, true
     end
-    
-    for _, p in ipairs(self.Filters.patterns) do
-        if lowerName:find(p.pattern) then
-            return p.raw
+
+    local lowerName = itemName:lower()
+
+    -- Exact name rules
+    if self.Filters.exactNames[lowerName] then
+        return self.Filters.exactNames[lowerName], false
+    end
+
+    -- Compound rules (AND)
+    if self.Filters.compoundRules and #self.Filters.compoundRules > 0 then
+        for _, rule in ipairs(self.Filters.compoundRules) do
+            local match = true
+            local vendorPrice = nil
+            local needsValue = false
+
+            for _, cond in ipairs(rule.conditions) do
+                if cond.type == "quality" then
+                    if quality ~= cond.value then
+                        match = false
+                        break
+                    end
+                elseif cond.type == "value" then
+                    needsValue = true
+                end
+            end
+
+            if match and needsValue then
+                vendorPrice = self:GetVendorPrice(link)
+                if vendorPrice == nil then
+                    return nil, true -- pending vendor value
+                end
+
+                for _, cond in ipairs(rule.conditions) do
+                    if cond.type == "value" then
+                        if cond.op == "<" then
+                            if not (vendorPrice < cond.threshold) then match = false break end
+                        else -- ">"
+                            if not (vendorPrice > cond.threshold) then match = false break end
+                        end
+                    end
+                end
+            end
+
+            if match then
+                return rule.raw, false
+            end
         end
     end
-    
-    return nil
+
+    -- Simple quality rules (qN) - guarded by link to avoid money/q0 bug
+    if link and quality and self.Filters.qualities[quality] then
+        return self.Filters.qualities[quality], false
+    end
+
+    -- Simple value rules
+    if self.Filters.valueRules and #self.Filters.valueRules > 0 then
+        local vendorPrice = self:GetVendorPrice(link)
+        if vendorPrice == nil then
+            return nil, true
+        end
+
+        for _, rule in ipairs(self.Filters.valueRules) do
+            if rule.op == "<" and vendorPrice < rule.copper then
+                return rule.raw, false
+            elseif rule.op == ">" and vendorPrice > rule.copper then
+                return rule.raw, false
+            end
+        end
+    end
+
+    -- Wildcards/patterns
+    for _, p in ipairs(self.Filters.patterns) do
+        if lowerName:find(p.pattern) then
+            return p.raw, false
+        end
+    end
+
+    return nil, false
 end
 
+
+
 -- ============================================================================
--- LOOT SOURCE CAPTURE & C++ AUTO-LOOT BYPASS
+-- LOOT SOURCE CAPTURE & NATIVE AUTO-LOOT BYPASS
 -- ============================================================================
 Qloot.shiftAtInteract  = false
 Qloot.shiftCaptureTime = 0
@@ -180,7 +374,7 @@ function Qloot:OnLootReady()
         return
     end
 
-    -- Ultimate fallback if they used an "Interact with Target" keybind instead of clicking
+    -- Ultimate fallback if player used an "Interact with Target" keybind instead of clicking    
     if (not self.lastLootSource or self.lastLootSource == "Unknown") and UnitExists("target") then
         self.lastLootSource = UnitName("target")
     end
@@ -199,26 +393,34 @@ function Qloot:OnLootReady()
         local _, _, quantity, quality, locked = GetLootSlotInfo(i)
 
         -- FILTER CHECK
-        local filterRule = self:GetFilterMatch(link, quality)
+        local filterRule, pendingValue = self:GetFilterMatch(link, quality)
         if filterRule then
             self:Debug("Slot " .. i .. " filtered out by rule: " .. filterRule)
             if link then self.SkippedLinks[link] = true end
-            
-            table.insert(self.SessionLog, { 
-                time = date("%H:%M:%S"), 
-                link = link or "currency", 
-                rule = filterRule, 
-                source = self.lastLootSource or "Unknown" 
+
+            table.insert(self.SessionLog, {
+                time = date("%H:%M:%S"),
+                link = link or "currency",
+                rule = filterRule,
+                source = self.lastLootSource or "Unknown"
             })
             if #self.SessionLog > Qloot.MAX_LOG_LINES then table.remove(self.SessionLog, 1) end
-            
+
         else
             if not locked then
+                if pendingValue and link then
+                    -- Prime cache early to improve chance vendor price is available before we loot
+                    self:PrimeItemInfo(link)
+                end
+
                 table.insert(self.LootQueue.items, {
                     slotIndex = i,
                     itemLink  = link,
                     quantity  = quantity,
                     rarity    = quality,
+                    pendingValue = (pendingValue and true) or false,
+                    pendingSince = pendingValue and GetTime() or nil,
+                    pendingTries = 0,
                 })
                 self:Debug("Queued slot " .. i .. ": " .. (link or "currency") .. " x" .. (quantity or 1))
             else
@@ -251,39 +453,93 @@ function Qloot:OnLootReady()
     end
 end
 
+
 -- ============================================================================
 -- EXECUTION
 -- ============================================================================
 function Qloot:ProcessNextLootItem()
     if #self.LootQueue.items == 0 then return end
-    
+
     local itemData = self.LootQueue.items[1]
-    
+
     if not GetLootSlotInfo(itemData.slotIndex) then
         self:Debug("Slot " .. itemData.slotIndex .. " no longer valid - skipping")
         table.remove(self.LootQueue.items, 1)
         return
     end
-    
-    local _, _, _, _, locked = GetLootSlotInfo(itemData.slotIndex)
+
+    local link = GetLootSlotLink(itemData.slotIndex)
+    local _, _, quantity, quality, locked = GetLootSlotInfo(itemData.slotIndex)
+
     if locked then
         self:ShowLootFrame(true)
         self:Debug("Slot " .. itemData.slotIndex .. " became LOCKED - showing window")
         table.remove(self.LootQueue.items, 1)
         return
     end
-    
-    if not self:CanLootItem(itemData.itemLink, itemData.quantity) then
-        self:Debug("Inventory FULL - cannot loot " .. (itemData.itemLink or "item"))
+
+    -- Re-check filter right before looting (lets vendor price cache arrive between passes)
+    local filterRule, pendingValue = self:GetFilterMatch(link, quality)
+    if filterRule then
+        self:Debug("Slot " .. itemData.slotIndex .. " filtered at execution by rule: " .. filterRule)
+
+        if link then self.SkippedLinks[link] = true end
+        table.insert(self.SessionLog, {
+            time   = date("%H:%M:%S"),
+            link   = link or "currency",
+            rule   = filterRule,
+            source = self.lastLootSource or "Unknown"
+        })
+        if #self.SessionLog > Qloot.MAX_LOG_LINES then table.remove(self.SessionLog, 1) end
+
+        table.remove(self.LootQueue.items, 1)
+        return
+    end
+
+    -- Vendor price still unknown: defer this slot to the end of the queue.
+    -- Only defer if there are other NON-pending items ahead; otherwise the item
+    -- is either alone or surrounded by other pending items - no benefit in waiting.
+    if pendingValue and link then
+        local hasOtherReadyItems = false
+        for i = 2, #self.LootQueue.items do
+            if not self.LootQueue.items[i].pendingValue then
+                hasOtherReadyItems = true
+                break
+            end
+        end
+
+        itemData.pendingTries = (itemData.pendingTries or 0) + 1
+
+        if hasOtherReadyItems and itemData.pendingTries <= PENDING_VALUE_MAX_TRIES then
+            self:PrimeItemInfo(link)
+
+            -- Move to back so other ready slots are processed first.
+            -- pendingTries only counts full passes (each time item returns to front
+            -- after at least one non-pending item was processed ahead of it).
+            table.remove(self.LootQueue.items, 1)
+            table.insert(self.LootQueue.items, itemData)
+
+            self:Debug("Deferring slot " .. itemData.slotIndex .. " (vendor value pending, pass " .. itemData.pendingTries .. "/" .. PENDING_VALUE_MAX_TRIES .. ")")
+            return
+        else
+            -- Either alone in queue, all others also pending, or max passes reached.
+            -- Loot as safe fallback rather than silently skipping.
+            self:Debug("Slot " .. itemData.slotIndex .. " vendor price never cached (pass " .. (itemData.pendingTries or 0) .. ") - looting as fallback")
+        end
+    end
+
+    if not self:CanLootItem(link, quantity) then
+        self:Debug("Inventory FULL - cannot loot " .. (link or "item"))
         self:OnInventoryFull()
         return
     end
-    
-    self:Debug("Looting slot " .. itemData.slotIndex .. ": " .. (itemData.itemLink or "currency"))
+
+    self:Debug("Looting slot " .. itemData.slotIndex .. ": " .. (link or "currency"))
     LootSlot(itemData.slotIndex)
-    
+
     table.remove(self.LootQueue.items, 1)
 end
+
 
 -- ============================================================================
 -- UTILITIES

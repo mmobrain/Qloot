@@ -1,8 +1,8 @@
 ## Interface: 30300
-## Title: |ce5cc80ffQloot|r |cffff5555[alpha.0.0.3]
+## Title: |ce5cc80ffQloot|r |cffff5555[alpha.0.0.5]
 ## Notes: Quick loot addon for WoW 3.3.5a with queue-based throttling, inventory validation, leftover item warnings, basic loot filter and log. Designed to prevent disconnects while "Fast Looting". 
 ## Author: Skulltrail
-## Version: 0.0.3
+## Version: 0.0.5
 ## SavedVariables: QlootDB
 
 Core.lua

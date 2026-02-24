@@ -28,8 +28,9 @@ function Qloot:LoadDefaults()
         fullSoundID = 1,
         debugMode = false,
         warnUnlooted = true,
-        shiftBypass = true,
-        filterList = "q0\n", 
+        shiftBypass = true,        
+        filterEnabled = true,
+        filterList = "",
     }
     
     for k, v in pairs(defaults) do
@@ -38,6 +39,7 @@ function Qloot:LoadDefaults()
         end
     end
 end
+
 
 function Qloot:Print(msg)
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00Qloot:|r " .. msg)

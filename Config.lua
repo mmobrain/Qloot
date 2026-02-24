@@ -1,6 +1,6 @@
 local addonName, ns = ...
 
-local version = "0.0.3"
+local version = "0.0.5"
 
 function Qloot:CreateConfigPanel()
     if Qloot.ConfigPanel then
@@ -94,21 +94,31 @@ function Qloot:CreateConfigPanel()
         return cb
     end
 
-    CreateCheck("Enable Auto Loot",                "enabled",     12, -28)
-    CreateCheck("Show Window on Locked/BoP Items", "showOnLocked", 12, -58)
-    CreateCheck("Show Window on Full Inventory",   "showOnFull",  12, -88)
+    CreateCheck("Enable Auto Loot",                "enabled",       12, -28)
+    CreateCheck("Show Window on Locked/BoP Items", "showOnLocked",  12, -58)
+    CreateCheck("Show Window on Full Inventory",   "showOnFull",    12, -88)
     CreateCheck("Play Sound on Full Inventory",    "playFullSound", 12, -118)
-    CreateCheck("Warn Leftover Items",             "warnUnlooted", 12, -148)
-    CreateCheck("Shift-key to Skip Auto-Loot",     "shiftBypass", 12, -178)
-    CreateCheck("Debug Mode",                      "debugMode",   12, -208)
+    CreateCheck("Warn Leftover Items",             "warnUnlooted",  12, -148)
+    CreateCheck("Shift-key to Skip Auto-Loot",     "shiftBypass",   12, -178)    
+
+    -- NEW: Filtering toggle (keeps rules but disables execution)
+    local filterToggle = CreateCheck("Enable Loot Filtering", "filterEnabled", 12, -208)
+    filterToggle:SetScript("OnClick", function(self)
+        QlootDB.filterEnabled = (self:GetChecked() == 1)
+        if Qloot.CompileFilters then
+            Qloot:CompileFilters()
+        end
+    end)
+    
+    CreateCheck("Debug Mode",                      "debugMode",     12, -238)
 
     local perfHeader = leftContent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-    perfHeader:SetPoint("TOPLEFT", 12, -238)
+    perfHeader:SetPoint("TOPLEFT", 12, -268)
     perfHeader:SetText("Performance")
     perfHeader:SetTextColor(1, 0.82, 0)
 
     local slider = CreateFrame("Slider", "QlootDelaySlider", leftContent, "OptionsSliderTemplate")
-    slider:SetPoint("TOPLEFT", 18, -260)
+    slider:SetPoint("TOPLEFT", 18, -290)
     slider:SetWidth(270)
     slider:SetMinMaxValues(50, 500)
     slider:SetValueStep(10)
@@ -174,7 +184,6 @@ function Qloot:CreateConfigPanel()
     filterEdit:SetWidth(230)
     filterEdit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
     filterScroll:SetScrollChild(filterEdit)
-
     filterEdit:SetText(QlootDB.filterList or "")
     filterEdit:SetScript("OnTextChanged", function(self, userInput)
         if userInput then
@@ -219,6 +228,7 @@ function Qloot:CreateConfigPanel()
     logBtn:SetText("View Skip Log")
     logBtn:SetScript("OnClick", function() Qloot:ShowLogWindow() end)
 end
+
 
 SLASH_QLOOT1 = "/qloot"
 SlashCmdList["QLOOT"] = function()
